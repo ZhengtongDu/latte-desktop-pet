@@ -490,12 +490,25 @@ export class PetEngine {
     ctx.scale(uniformScale, uniformScale);
 
     const layout = this.buildLayout();
-    this.drawSceneBackdrop(ctx);
+    const hasScene = this.sceneId !== 'none';
+    if (hasScene) this.drawSceneBackdrop(ctx);
+
+    ctx.save();
+    if (hasScene) {
+      // Frame Latte & keyboard cleanly inside the enlarged cozy room backdrop (+73% relative room area)
+      const anchorX = 210;
+      const anchorY = 344;
+      const fgScale = 0.84;
+      ctx.translate(anchorX, anchorY + 12);
+      ctx.scale(fgScale, fgScale);
+      ctx.translate(-anchorX, -anchorY);
+    }
     this.latte.renderBody(ctx, now, layout);
     this.drawGamingMouse(ctx);
     this.drawRgbKeyboard(ctx, uniformScale);
     this.latte.renderForeground(ctx, now, layout);
     if (!this.privacyMode) this.drawKeyBubbles(ctx);
+    ctx.restore();
 
     ctx.restore();
   }
@@ -504,7 +517,14 @@ export class PetEngine {
     if (this.sceneId === 'none') return;
     const img = this.ensureSceneImage(this.sceneId);
     if (!img.complete || img.naturalWidth === 0) return;
-    ctx.drawImage(img, 0, 0, LOGICAL_W, LOGICAL_H);
+    const anchorX = 210;
+    const anchorY = 344;
+    const sceneScale = 1.105;
+    const sw = LOGICAL_W * sceneScale;
+    const sh = LOGICAL_H * sceneScale;
+    const sx = anchorX - anchorX * sceneScale;
+    const sy = anchorY - anchorY * sceneScale;
+    ctx.drawImage(img, sx, sy, sw, sh);
   }
 
   private drawGamingMouse(ctx: CanvasRenderingContext2D): void {
