@@ -20,6 +20,14 @@ pub fn default_outfit_id() -> String {
     "donut-yellow".to_string()
 }
 
+pub fn default_gear_theme() -> String {
+    "dark-rgb".to_string()
+}
+
+pub fn default_scene_id() -> String {
+    "none".to_string()
+}
+
 pub fn normalize_fps_cap(raw: u16) -> u16 {
     match raw {
         20 => 20,
@@ -39,6 +47,25 @@ pub fn normalize_outfit_id(raw: &str) -> String {
         trimmed.to_string()
     } else {
         "none".to_string()
+    }
+}
+
+pub fn normalize_gear_theme(raw: &str) -> String {
+    match raw.trim() {
+        "snow-white" => "snow-white".to_string(),
+        "cream-retro" => "cream-retro".to_string(),
+        "sakura-pink" => "sakura-pink".to_string(),
+        _ => default_gear_theme(),
+    }
+}
+
+pub fn normalize_scene_id(raw: &str) -> String {
+    match raw.trim() {
+        "bookshelf" => "bookshelf".to_string(),
+        "kitchen" => "kitchen".to_string(),
+        "litterbox" => "litterbox".to_string(),
+        "window" => "window".to_string(),
+        _ => default_scene_id(),
     }
 }
 
@@ -62,6 +89,10 @@ pub struct AppSettings {
     pub outfit_id: String,
     #[serde(default)]
     pub harness_on: bool,
+    #[serde(default = "default_gear_theme")]
+    pub gear_theme: String,
+    #[serde(default = "default_scene_id")]
+    pub scene_id: String,
 }
 
 impl Default for AppSettings {
@@ -76,6 +107,8 @@ impl Default for AppSettings {
             fps_cap: default_fps_cap(),
             outfit_id: default_outfit_id(),
             harness_on: false,
+            gear_theme: default_gear_theme(),
+            scene_id: default_scene_id(),
         }
     }
 }
@@ -102,6 +135,8 @@ pub fn load_settings() -> AppSettings {
             parsed.scale = parsed.scale.clamp(0.35, 1.40);
             parsed.fps_cap = normalize_fps_cap(parsed.fps_cap);
             parsed.outfit_id = normalize_outfit_id(&parsed.outfit_id);
+            parsed.gear_theme = normalize_gear_theme(&parsed.gear_theme);
+            parsed.scene_id = normalize_scene_id(&parsed.scene_id);
             return parsed;
         }
     }
@@ -140,5 +175,7 @@ mod tests {
         assert_eq!(parsed.outfit_id, "bell-collar");
         assert!(parsed.harness_on);
         assert!(parsed.privacy_password_guard);
+        assert_eq!(parsed.gear_theme, "dark-rgb");
+        assert_eq!(parsed.scene_id, "none");
     }
 }

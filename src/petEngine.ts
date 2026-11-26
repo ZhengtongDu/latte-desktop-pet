@@ -1,4 +1,8 @@
 import { catAudio } from './audio';
+import sceneBookshelfUrl from './assets/latte/scenes/scene_bookshelf.webp';
+import sceneKitchenUrl from './assets/latte/scenes/scene_kitchen.webp';
+import sceneLitterboxUrl from './assets/latte/scenes/scene_litterbox.webp';
+import sceneWindowUrl from './assets/latte/scenes/scene_window.webp';
 import {
   formatBubbleForVk,
   KEYBOARD_KEYS,
@@ -8,6 +12,14 @@ import {
   type KeySpec,
 } from './keyboardLayout';
 import { LatteRenderer, type LatteLayout } from './latteRenderer';
+import {
+  GEAR_THEMES,
+  normalizeGearTheme,
+  normalizeSceneId,
+  type GearPalette,
+  type GearThemeId,
+  type SceneId,
+} from './themes';
 import type { CustomAccessoryMeta, CustomImageLoader, WardrobeSelection } from './wardrobe';
 
 const LOGICAL_W = 420;
@@ -20,6 +32,13 @@ const KB_TILT = (3.4 * Math.PI) / 180;
 const MOUSE_X = 66;
 const MOUSE_Y = 336;
 const SLEEP_IDLE_MS = 45_000;
+
+const SCENE_URLS: Record<Exclude<SceneId, 'none'>, string> = {
+  bookshelf: sceneBookshelfUrl,
+  kitchen: sceneKitchenUrl,
+  litterbox: sceneLitterboxUrl,
+  window: sceneWindowUrl,
+};
 
 interface KeyAnim {
   down: boolean;
@@ -38,8 +57,9 @@ interface KeyBubble {
 
 /**
  * Lightweight 2.5D Canvas engine dedicated to 拿铁 (Latte).
- * - Zero WebGL, zero per-frame shadowBlur, cached static RGB keyboard chassis.
- * - Adaptive 3-tier FPS cap (60 / 30 / 20) + 10 FPS idle + 5 FPS deep sleep + smart DPR cap.
+ * - Optional floating colored-pencil scene backdrop behind Latte.
+ * - 4 cached keyboard + mouse themes (including crisp Snow White!).
+ * - Adaptive 3-tier FPS cap (60 / 30 / 20) + 10 FPS idle + 5 FPS deep sleep.
  */
 export class PetEngine {
   private readonly ctx: CanvasRenderingContext2D;
@@ -50,6 +70,10 @@ export class PetEngine {
   private lastRenderAt = 0;
   private fpsCap = 30;
   private dprCap = 1.5;
+
+  private gearTheme: GearThemeId = 'dark-rgb';
+  private sceneId: SceneId = 'none';
+  private sceneImages = new Map<string, HTMLImageElement>();
 
   private kbCacheCanvas: HTMLCanvasElement | null = null;
   private kbCacheKey = '';
@@ -125,6 +149,32 @@ export class PetEngine {
     this.resize();
   }
 
+  public setGearTheme(theme: unknown): void {
+    const next = normalizeGearTheme(theme);
+    if (this.gearTheme !== next) {
+      this.gearTheme = next;
+      this.kbCacheKey = '';
+    }
+  }
+
+  public setScene(scene: unknown): void {
+    this.sceneId = normalizeSceneId(scene);
+    if (this.sceneId !== 'none') {
+      this.ensureSceneImage(this.sceneId);
+    }
+  }
+
+  private ensureSceneImage(id: Exclude<SceneId, 'none'>): HTMLImageElement {
+    let img = this.sceneImages.get(id);
+    if (!img) {
+      img = new Image();
+      img.decoding = 'async';
+      img.src = SCENE_URLS[id];
+      this.sceneImages.set(id, img);
+    }
+    return img;
+  }
+
   public setWardrobe(sel: Partial<WardrobeSelection>): void {
     this.latte.setWardrobeSelection(sel);
   }
@@ -175,7 +225,9 @@ export class PetEngine {
       this.kbBounce = Math.min(1.8, this.kbBounce + 0.9);
       const label = formatBubbleForVk(vk, spec);
       if (label) {
-        this.pushBubble(label, pt.x, pt.y - 20, '#8ff3e6');
+        const pal = this.palette();
+        const accent = pt.x < KB_CX + 12 ? pal.bubbleAccentL : pal.bubbleAccentR;
+        this.pushBubble(label, pt.x, pt.y - 20, accent);
       }
     }
 
@@ -203,15 +255,16 @@ export class PetEngine {
     this.wake(now, false);
     const mx = MOUSE_X + this.mouseOffsetX;
     const my = MOUSE_Y + this.mouseOffsetY;
+    const pal = this.palette();
     if (button === 'left') {
       this.mouseLeftDown = true;
       this.mouseLeftPress = 1;
-      this.pushBubble('L', mx, my - 30, '#8ff3e6');
+      this.pushBubble('L', mx, my - 30, pal.bubbleAccentL);
       this.latte.onMouseClick(this.buildLayout(), 'left');
     } else if (button === 'right') {
       this.mouseRightDown = true;
       this.mouseRightPress = 1;
-      this.pushBubble('R', mx, my - 30, '#ff84c8');
+      this.pushBubble('R', mx, my - 30, pal.bubbleAccentR);
       this.latte.onMouseClick(this.buildLayout(), 'right');
     } else if (button === 'middle') {
       this.mouseMiddlePress = 1;
@@ -249,11 +302,12 @@ export class PetEngine {
 
   public triggerTailFlick(): void {
     this.wake(performance.now(), false);
-    this.latte.triggerTailFlick();
+    this.latte.triggerTailFlick(this.buildLayout());
   }
 
-  /** Demo mode for static Vite preview (`index.html?demo=typing|happy|sleep|privacy|keys:enter,esc|mouse`) */
+  /** Demo mode for static Vite preview (`index.html?demo=typing|happy|easter|sleep|privacy|keys:enter,esc|mouse&gear=snow-white&scene=bookshelf`) */
   public setDemoMode(mode: string): void {
+    const pal = this.palette();
     if (mode === 'sleep') {
       this.asleep = true;
       this.sleepAmount = 1;
@@ -263,13 +317,26 @@ export class PetEngine {
     } else if (mode === 'happy') {
       this.petEnergy = 0.85;
       this.latte.seedDemoState('happy', this.buildLayout());
+    } else if (mode === 'easter') {
+      const enter = KEYBOARD_KEYS.find((k) => k.id === 'enter');
+      const q = KEYBOARD_KEYS.find((k) => k.id === 'q');
+      const targets: { left?: { x: number; y: number }; right?: { x: number; y: number } } = {};
+      if (enter) {
+        targets.left = this.keyWorldPos(enter);
+        this.keyAnims.set(enter.id, { down: true, press: 1, lastAt: performance.now() });
+      }
+      if (q) {
+        targets.right = this.keyWorldPos(q);
+        this.keyAnims.set(q.id, { down: true, press: 1, lastAt: performance.now() });
+      }
+      this.latte.seedDemoState('easter', this.buildLayout(), targets);
     } else if (mode === 'mouse') {
       this.mouseLeftDown = true;
       this.mouseLeftPress = 1;
       this.latte.seedDemoState('typing', this.buildLayout(), {
         left: { x: MOUSE_X + 5, y: MOUSE_Y + 4 },
       });
-      this.pushBubble('L', MOUSE_X, MOUSE_Y - 30, '#8ff3e6');
+      this.pushBubble('L', MOUSE_X, MOUSE_Y - 30, pal.bubbleAccentL);
     } else if (mode.startsWith('keys:') || mode === 'typing') {
       const ids = mode.startsWith('keys:') ? mode.slice(5).split(',') : ['enter', 'q'];
       const targets: { left?: { x: number; y: number }; right?: { x: number; y: number } } = {};
@@ -278,7 +345,7 @@ export class PetEngine {
         if (!spec) continue;
         const pt = this.keyWorldPos(spec);
         this.keyAnims.set(spec.id, { down: true, press: 1, lastAt: performance.now() });
-        this.pushBubble(spec.bubble, pt.x, pt.y - 20, pt.x < KB_CX + 12 ? '#8ff3e6' : '#f5c84b');
+        this.pushBubble(spec.bubble, pt.x, pt.y - 20, pt.x < KB_CX + 12 ? pal.bubbleAccentL : pal.bubbleAccentR);
         if (pt.x < KB_CX + 12) targets.left = pt;
         else targets.right = pt;
       }
@@ -296,12 +363,15 @@ export class PetEngine {
     }
   }
 
+  private palette(): GearPalette {
+    return GEAR_THEMES[this.gearTheme] ?? GEAR_THEMES['dark-rgb'];
+  }
+
   private wake(now: number, abrupt: boolean): void {
     const wasAsleep = this.asleep && this.sleepAmount > 0.65;
     this.lastActivityAt = now;
     this.asleep = false;
     if (abrupt && wasAsleep && !this.privacyMode && this.petEnergy < 0.15) {
-      // Brief ~2.5s sleepy wake-up grump (never triggered by fast typing!)
       this.isCross = true;
       this.crossUntil = now + 2500;
     }
@@ -311,10 +381,10 @@ export class PetEngine {
     const idleMs = now - this.lastActivityAt;
     const baseMs = this.fpsCap > 0 ? 1000 / this.fpsCap : 0;
     if (this.asleep && this.sleepAmount > 0.9 && this.keyBubbles.length === 0) {
-      return Math.max(baseMs, 200); // 5 FPS deep sleep
+      return Math.max(baseMs, 200);
     }
     if (idleMs > 3000 && this.petEnergy < 0.05 && this.keyBubbles.length === 0 && !this.isCross) {
-      return Math.max(baseMs, 100); // 10 FPS idle
+      return Math.max(baseMs, 100);
     }
     return baseMs;
   }
@@ -420,6 +490,7 @@ export class PetEngine {
     ctx.scale(uniformScale, uniformScale);
 
     const layout = this.buildLayout();
+    this.drawSceneBackdrop(ctx);
     this.latte.renderBody(ctx, now, layout);
     this.drawGamingMouse(ctx);
     this.drawRgbKeyboard(ctx, uniformScale);
@@ -429,7 +500,15 @@ export class PetEngine {
     ctx.restore();
   }
 
+  private drawSceneBackdrop(ctx: CanvasRenderingContext2D): void {
+    if (this.sceneId === 'none') return;
+    const img = this.ensureSceneImage(this.sceneId);
+    if (!img.complete || img.naturalWidth === 0) return;
+    ctx.drawImage(img, 0, 0, LOGICAL_W, LOGICAL_H);
+  }
+
   private drawGamingMouse(ctx: CanvasRenderingContext2D): void {
+    const pal = this.palette();
     const mx = MOUSE_X + this.mouseOffsetX;
     const my = MOUSE_Y + this.mouseOffsetY;
     const rx = 16.5;
@@ -437,7 +516,6 @@ export class PetEngine {
     const lPress = this.mouseLeftPress;
     const rPress = this.mouseRightPress;
     const mPress = Math.max(this.mouseMiddlePress, this.mouseScrollFlash);
-    const lit = '#8ff3e6';
 
     const shell = (inset = 0) => {
       ctx.beginPath();
@@ -453,7 +531,7 @@ export class PetEngine {
     ctx.rotate(-0.06);
 
     // Cable leaving the button end
-    ctx.strokeStyle = '#1b1a1e';
+    ctx.strokeStyle = pal.mouseCable;
     ctx.lineWidth = 1.6;
     ctx.lineCap = 'round';
     ctx.beginPath();
@@ -462,18 +540,18 @@ export class PetEngine {
     ctx.stroke();
 
     // Soft drop shadow
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+    ctx.fillStyle = pal.shadowColor;
     ctx.save();
     ctx.translate(0, 2.5);
     shell();
     ctx.fill();
     ctx.restore();
 
-    // Graphite shell
+    // Mouse shell gradient
     const body = ctx.createLinearGradient(-rx, 0, rx, 0);
-    body.addColorStop(0, '#232227');
-    body.addColorStop(0.5, '#38363d');
-    body.addColorStop(1, '#232227');
+    body.addColorStop(0, pal.mouseShell[0]);
+    body.addColorStop(0.5, pal.mouseShell[1]);
+    body.addColorStop(1, pal.mouseShell[2]);
     ctx.fillStyle = body;
     shell();
     ctx.fill();
@@ -483,19 +561,19 @@ export class PetEngine {
     ctx.clip();
 
     const seamY = ry * 0.08;
-    ctx.fillStyle = lPress > 0.08 ? lit : '#302e35';
-    ctx.globalAlpha = lPress > 0.08 ? 0.35 + 0.65 * lPress : 1;
+    ctx.fillStyle = lPress > 0.08 ? pal.mousePress : pal.mouseButton;
+    ctx.globalAlpha = lPress > 0.08 ? 0.45 + 0.55 * lPress : 1;
     ctx.fillRect(0.6, seamY, rx + 2, ry + 2);
-    ctx.globalAlpha = rPress > 0.08 ? 0.35 + 0.65 * rPress : 1;
-    ctx.fillStyle = rPress > 0.08 ? lit : '#302e35';
+    ctx.globalAlpha = rPress > 0.08 ? 0.45 + 0.55 * rPress : 1;
+    ctx.fillStyle = rPress > 0.08 ? pal.mousePress : pal.mouseButton;
     ctx.fillRect(-rx - 2, seamY, rx + 1.4, ry + 2);
     ctx.globalAlpha = 1;
 
     // Side RGB strips
     const led = ctx.createLinearGradient(0, -ry, 0, ry);
-    led.addColorStop(0, '#ff7ac6');
-    led.addColorStop(0.5, '#8b7bff');
-    led.addColorStop(1, '#4fe3d1');
+    led.addColorStop(0, pal.mouseLedStops[0]);
+    led.addColorStop(0.5, pal.mouseLedStops[1]);
+    led.addColorStop(1, pal.mouseLedStops[2]);
     ctx.strokeStyle = led;
     ctx.lineWidth = 1.8;
     ctx.globalAlpha = 0.85;
@@ -507,7 +585,7 @@ export class PetEngine {
     }
     ctx.globalAlpha = 1;
 
-    ctx.strokeStyle = 'rgba(10, 10, 12, 0.85)';
+    ctx.strokeStyle = pal.mouseSeam;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(-rx - 2, seamY);
@@ -517,21 +595,21 @@ export class PetEngine {
     ctx.stroke();
     ctx.restore();
 
-    // Glowing scroll wheel
-    ctx.fillStyle = '#121115';
+    // Scroll wheel
+    ctx.fillStyle = pal.mouseWheelSlot;
     this.roundRect(ctx, -2.4, seamY + 2.5, 4.8, 9.5, 2.4);
     ctx.fill();
-    ctx.fillStyle = mPress > 0.12 ? lit : '#4fe3d1';
-    ctx.globalAlpha = mPress > 0.12 ? 1 : 0.6;
+    ctx.fillStyle = mPress > 0.12 ? pal.mousePress : pal.mouseWheelIdle;
+    ctx.globalAlpha = mPress > 0.12 ? 1 : 0.72;
     this.roundRect(ctx, -1.4, seamY + 3.4 + this.mouseMiddlePress * 0.8, 2.8, 7.6, 1.4);
     ctx.fill();
     ctx.globalAlpha = 1;
 
-    ctx.strokeStyle = '#0f0e11';
+    ctx.strokeStyle = pal.mouseOutline;
     ctx.lineWidth = 1.3;
     shell();
     ctx.stroke();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.strokeStyle = pal.mouseHighlight;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(-rx * 0.45, -ry * 0.78);
@@ -542,6 +620,7 @@ export class PetEngine {
   }
 
   private drawRgbKeyboard(ctx: CanvasRenderingContext2D, uniformScale: number): void {
+    const pal = this.palette();
     const innerW = KB_W - 14;
     const innerH = KB_H - 12;
     const topHalfW = (KB_W * 0.955) / 2;
@@ -561,21 +640,21 @@ export class PetEngine {
       const y = -innerH / 2 + screenRow * rowH + gap * 0.5 + press * 2.0;
       const h = rowH - gap - 0.8;
 
-      let topColor = '#3c3b41';
-      let sideColor = '#232227';
+      let topColor = pal.keyTop;
+      let sideColor = pal.keySide;
       if (press > 0.14) {
-        topColor = '#8ff3e6';
-        sideColor = '#3fb3a5';
+        topColor = pal.pressTop;
+        sideColor = pal.pressSide;
       } else if (key.accent === 'orange') {
-        topColor = '#f2c14e';
-        sideColor = '#a9822a';
+        topColor = pal.accentTop;
+        sideColor = pal.accentSide;
       } else if (key.accent === 'mod' || key.id === 'space') {
-        topColor = '#56545c';
-        sideColor = '#36343b';
+        topColor = pal.modTop;
+        sideColor = pal.modSide;
       }
 
       if (press > 0.01) {
-        target.fillStyle = '#1c1b1f';
+        target.fillStyle = pal.wellFill;
         target.fillRect(x - 0.4, -innerH / 2 + screenRow * rowH + gap * 0.5 - 0.4, w + 0.8, h + 3.8);
       }
 
@@ -594,7 +673,8 @@ export class PetEngine {
         target.translate(x + w * 0.5, y + (h - 0.9) * 0.5);
         target.rotate(Math.PI);
         target.font = `700 ${fontSize}px -apple-system, system-ui, sans-serif`;
-        target.fillStyle = press > 0.14 ? '#111214' : key.accent === 'orange' ? '#2a2418' : '#d8dbe3';
+        target.fillStyle =
+          press > 0.14 ? pal.legendPress : key.accent === 'orange' ? pal.legendAccent : pal.legendMain;
         target.textAlign = 'center';
         target.textBaseline = 'middle';
         target.fillText(legend, 0, 0);
@@ -606,7 +686,7 @@ export class PetEngine {
     const padMargin = 20;
     const cacheLogW = Math.ceil(botHalfW * 2 + padMargin * 2);
     const cacheLogH = Math.ceil(KB_H + padMargin * 2);
-    const nextKey = `${cacheScale}`;
+    const nextKey = `${cacheScale}:${this.gearTheme}`;
 
     if (!this.kbCacheCanvas || this.kbCacheKey !== nextKey) {
       if (!this.kbCacheCanvas) this.kbCacheCanvas = document.createElement('canvas');
@@ -619,14 +699,13 @@ export class PetEngine {
         cg.scale(cacheScale, cacheScale);
         cg.translate(cacheLogW * 0.5, cacheLogH * 0.5);
 
-        // Cached RGB underglow halo (0 per-frame blur!)
         const glow = cg.createLinearGradient(-botHalfW, 0, botHalfW, 0);
-        glow.addColorStop(0, '#4fe3d1');
-        glow.addColorStop(0.5, '#8b7bff');
-        glow.addColorStop(1, '#ff7ac6');
+        glow.addColorStop(0, pal.glowStops[0]);
+        glow.addColorStop(0.5, pal.glowStops[1]);
+        glow.addColorStop(1, pal.glowStops[2]);
         cg.strokeStyle = glow;
         for (const [w, a] of [[14, 0.08], [9, 0.13], [5, 0.22]] as const) {
-          cg.globalAlpha = a;
+          cg.globalAlpha = a * pal.glowAlphaScale;
           cg.lineWidth = w;
           this.trapezoidPath(cg, topHalfW, botHalfW, -halfH + 2, halfH + 3, 7);
           cg.stroke();
@@ -634,22 +713,22 @@ export class PetEngine {
         cg.globalAlpha = 1;
 
         cg.save();
-        cg.shadowColor = 'rgba(0, 0, 0, 0.34)';
+        cg.shadowColor = pal.shadowColor;
         cg.shadowBlur = 10;
         cg.shadowOffsetY = 5;
-        cg.fillStyle = '#141317';
+        cg.fillStyle = pal.wellFill;
         this.trapezoidPath(cg, topHalfW, botHalfW, -halfH + 3.5, halfH + 5.5, 6.5);
         cg.fill();
         cg.restore();
 
-        cg.fillStyle = '#2a292e';
-        cg.strokeStyle = '#4a4850';
-        cg.lineWidth = 1.1;
+        cg.fillStyle = pal.caseFill;
+        cg.strokeStyle = pal.caseStroke;
+        cg.lineWidth = 1.2;
         this.trapezoidPath(cg, topHalfW, botHalfW, -halfH, halfH, 6.5);
         cg.fill();
         cg.stroke();
 
-        cg.fillStyle = '#1c1b1f';
+        cg.fillStyle = pal.wellFill;
         this.trapezoidPath(cg, topHalfW - 5, botHalfW - 5, -halfH + 4, halfH - 4, 3.5);
         cg.fill();
 
@@ -675,13 +754,12 @@ export class PetEngine {
       if (press > 0.01) drawKey(ctx, key, press);
     }
 
-    // Reactive RGB rim strip
     const strip = ctx.createLinearGradient(-botHalfW, 0, botHalfW, 0);
-    strip.addColorStop(0, '#4fe3d1');
-    strip.addColorStop(0.5, '#8b7bff');
-    strip.addColorStop(1, '#ff7ac6');
+    strip.addColorStop(0, pal.glowStops[0]);
+    strip.addColorStop(0.5, pal.glowStops[1]);
+    strip.addColorStop(1, pal.glowStops[2]);
     ctx.save();
-    ctx.globalAlpha = 0.38 + 0.62 * Math.min(1, maxPress);
+    ctx.globalAlpha = (0.36 + 0.64 * Math.min(1, maxPress)) * pal.glowAlphaScale;
     ctx.strokeStyle = strip;
     ctx.lineWidth = 1.7;
     this.trapezoidPath(ctx, topHalfW + 0.8, botHalfW + 0.8, -halfH - 0.8, halfH + 0.8, 7);
@@ -710,25 +788,26 @@ export class PetEngine {
   }
 
   private drawKeyBubbles(ctx: CanvasRenderingContext2D): void {
+    const pal = this.palette();
     for (const b of this.keyBubbles) {
       const u = Math.min(1, b.age / b.lifetime);
       const pop = u < 0.14 ? 0.65 + (u / 0.14) * 0.45 : u < 0.28 ? 1.1 - ((u - 0.14) / 0.14) * 0.1 : 1.0;
       const alpha = u > 0.65 ? Math.max(0, (1 - u) / 0.35) : 1;
 
       ctx.save();
-      ctx.globalAlpha = alpha * 0.94;
+      ctx.globalAlpha = alpha * 0.95;
       ctx.translate(b.x, b.y);
       ctx.scale(pop, pop);
       ctx.font = '700 14px -apple-system, "PingFang SC", sans-serif';
       const tw = Math.max(20, ctx.measureText(b.label).width + 14);
       const th = 22;
-      ctx.fillStyle = 'rgba(24, 24, 30, 0.90)';
+      ctx.fillStyle = pal.bubbleBg;
       ctx.strokeStyle = b.accent;
       ctx.lineWidth = 1.5;
       this.roundRect(ctx, -tw * 0.5, -th * 0.5, tw, th, 7);
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = '#f8f9fc';
+      ctx.fillStyle = pal.bubbleText;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(b.label, 0, 0.5);

@@ -6,7 +6,10 @@ mod macos_window;
 mod privacy;
 mod tray;
 
-use config::{load_settings, normalize_fps_cap, normalize_outfit_id, save_settings, AppSettings};
+use config::{
+    load_settings, normalize_fps_cap, normalize_gear_theme, normalize_outfit_id,
+    normalize_scene_id, save_settings, AppSettings,
+};
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -15,8 +18,8 @@ use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, Size, St
 
 pub const BASE_WIDTH: f64 = 420.0;
 pub const BASE_HEIGHT: f64 = 440.0;
-const SIDE_MENU_LOGICAL_W: f64 = 268.0;
-const SIDE_MENU_LOGICAL_H: f64 = 276.0;
+const SIDE_MENU_LOGICAL_W: f64 = 280.0;
+const SIDE_MENU_LOGICAL_H: f64 = 396.0;
 const SIDE_MENU_IDLE_DESTROY_SECS: u64 = 25;
 
 static GEOMETRY_DIRTY: AtomicBool = AtomicBool::new(true);
@@ -228,10 +231,18 @@ fn update_settings(app: AppHandle, state: State<'_, AppState>, mut patch: AppSet
     patch.scale = patch.scale.clamp(0.35, 1.40);
     patch.fps_cap = normalize_fps_cap(patch.fps_cap);
     patch.outfit_id = normalize_outfit_id(&patch.outfit_id);
+    patch.gear_theme = normalize_gear_theme(&patch.gear_theme);
+    patch.scene_id = normalize_scene_id(&patch.scene_id);
 
-    let (prev_scale, prev_outfit, prev_harness) = {
+    let (prev_scale, prev_outfit, prev_harness, prev_gear, prev_scene) = {
         let s = state.settings.lock().unwrap();
-        (s.scale, s.outfit_id.clone(), s.harness_on)
+        (
+            s.scale,
+            s.outfit_id.clone(),
+            s.harness_on,
+            s.gear_theme.clone(),
+            s.scene_id.clone(),
+        )
     };
 
     let size_changed = (patch.scale - prev_scale).abs() > 0.005;
@@ -259,7 +270,11 @@ fn update_settings(app: AppHandle, state: State<'_, AppState>, mut patch: AppSet
     }
 
     let _ = app.emit("kuro-settings", patch.clone());
-    if patch.outfit_id != prev_outfit || patch.harness_on != prev_harness {
+    if patch.outfit_id != prev_outfit
+        || patch.harness_on != prev_harness
+        || patch.gear_theme != prev_gear
+        || patch.scene_id != prev_scene
+    {
         tray::refresh_tray(&app);
     }
     if size_changed {

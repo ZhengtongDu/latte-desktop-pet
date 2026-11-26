@@ -1,3 +1,4 @@
+import { catAudio } from './audio';
 import bodyIdleUrl from './assets/latte/pencil/body_idle.webp';
 import bodyBlinkUrl from './assets/latte/pencil/body_blink.webp';
 import bodyTypingUrl from './assets/latte/pencil/body_typing.webp';
@@ -86,8 +87,8 @@ interface PawSpriteSpec {
   shY: number;
   tipX: number;
   tipY: number;
-  theta: number; // atan2(tipY - shY, tipX - shX)
-  len: number;   // hypot(tipX - shX, tipY - shY) in 1024px space
+  theta: number;
+  len: number;
 }
 
 function makePawSpec(
@@ -113,7 +114,6 @@ function makePawSpec(
   };
 }
 
-// Standard 1024² coordinate frame shared by all body, tail, accessory, and resting paw layers.
 const CROP_X = 240;
 const CROP_Y = 100;
 const CROP_W = 688;
@@ -145,10 +145,12 @@ const RIGHT_PAW_SPECS: readonly PawSpriteSpec[] = [
 
 const NOTE_PALETTE = ['#4fe3d1', '#9b8aff', '#ff84c8', '#f5c84b'] as const;
 const NOTE_GLYPHS = ['♪', '♫', '♪', '✦'] as const;
+const FEVER_GLYPHS = ['♪', '♫', '✦', '★', '♥', '🐾'] as const;
 
 interface FloatParticle {
   x: number;
   y: number;
+  vx: number;
   vy: number;
   age: number;
   lifetime: number;
@@ -160,6 +162,15 @@ interface FloatParticle {
   rot: number;
 }
 
+interface SpeechPill {
+  text: string;
+  x: number;
+  y: number;
+  age: number;
+  lifetime: number;
+  accent: string;
+}
+
 interface PawTracker {
   held: Map<number, { x: number; y: number }>;
   targetX: number;
@@ -167,10 +178,10 @@ interface PawTracker {
   curX: number;
   curY: number;
   initialized: boolean;
-  pressBlend: number;   // 0 = relaxed resting pose, 1 = actively reaching target
+  pressBlend: number;
   tapUntil: number;
   lastPressAt: number;
-  strikePulse: number;  // 1 -> 0 downward tap bounce
+  strikePulse: number;
   chosenSpec: PawSpriteSpec | null;
 }
 
@@ -207,7 +218,8 @@ function wrapAngleDiff(a: number, b: number): number {
 
 /**
  * Layered colored-pencil renderer for 拿铁 (Latte, pure Silver Classic Tabby).
- * Draw order: tail → body(expression) → accessories → [mouse & keyboard] → targeted paws + floating FX.
+ * - Bright wide-eyed excited expression during typing (even fast streaks!).
+ * - Rare, cozy Easter eggs: soft kitten "喵~" meow + speech bubble, starlight music bursts, fish treats.
  */
 export class LatteRenderer {
   private imgs: Record<LayerKey, HTMLImageElement> | null = null;
@@ -234,7 +246,14 @@ export class LatteRenderer {
   private breathT = 0;
   private nextNoteAt = 0;
   private nextHeartAt = 0;
+
+  // Cozy rare Easter-egg cooldowns & state
+  private easterHappyUntil = -10000;
+  private lastMeowAt = -55_000;
+  private lastFeverAt = -25_000;
+  private lastTreatAt = -40_000;
   private particles: FloatParticle[] = [];
+  private speechPills: SpeechPill[] = [];
 
   public setWardrobeSelection(sel: Partial<WardrobeSelection>): void {
     const prev = this.selection.outfitId;
@@ -291,15 +310,29 @@ export class LatteRenderer {
     this.assignPawTarget(this.leftPaw, tx, ty, now, 260, layout, true);
     this.bob = Math.min(1.1, this.bob + 0.45);
     this.spawnKeySparkle(tx, ty - 14);
+
+    // Tiny rare fish/pawprint treat chance on click (cooldown >= 65s)
+    if (!layout.privacyMode && now - this.lastTreatAt > 65_000 && Math.random() < 0.012) {
+      this.triggerTreatEgg(layout, now);
+    }
   }
 
   public onMouseRelease(): void {
     this.mousePressed = false;
   }
 
-  public triggerTailFlick(): void {
-    this.tailFlickUntil = performance.now() + 340;
-    this.bob = Math.min(1.2, this.bob + 0.7);
+  /** Double-clicking Latte gives a cozy meow, playful tail flick, and rosy hearts! */
+  public triggerTailFlick(layout?: LatteLayout): void {
+    const now = performance.now();
+    this.tailFlickUntil = now + 520;
+    this.easterHappyUntil = now + 1150;
+    this.bob = Math.min(1.3, this.bob + 0.8);
+    catAudio.playMeow();
+    if (layout) {
+      const g = this.computeGeom(layout);
+      this.spawnSpeechPill('喵~ ♥', g.charX + 54, g.oyBody + SRC_HEAD_TOP.y * g.s + 14, '#ff84c8');
+      this.spawnMiniCelebration(g, ['♥', '🐾', '✦'], 3);
+    }
   }
 
   public onKeyDown(vk: number, ptX: number, ptY: number, layout: LatteLayout, repeat: boolean): void {
@@ -309,7 +342,6 @@ export class LatteRenderer {
     this.keyTimes.push(now);
     this.bob = Math.min(1.4, this.bob + 0.78);
 
-    // Natural touch-typing split between H (screen-left) and G (screen-right), alternating on Spacebar
     let useLeft: boolean;
     let targetX = ptX;
     if (vk === 0x20) {
@@ -324,15 +356,127 @@ export class LatteRenderer {
     paw.held.set(vk, { x: targetX, y: ptY });
     this.assignPawTarget(paw, targetX, ptY, now, 230, layout, useLeft);
 
-    // Crisp sparkle burst over the pressed keycap on energetic typing
-    if (this.typingCps(now) >= 2.2 && this.particles.length < 10) {
+    const cps = this.typingCps(now);
+    if (cps >= 2.2 && this.particles.length < 12) {
       this.spawnKeySparkle(targetX, ptY - 10);
+    }
+
+    // Rare, cozy typing Easter eggs (never spammy thanks to generous cooldowns)
+    if (cps >= 2.2) {
+      this.maybeTriggerTypingEasterEgg(layout, now, cps);
     }
   }
 
   public onKeyUp(vk: number): void {
     this.leftPaw.held.delete(vk);
     this.rightPaw.held.delete(vk);
+  }
+
+  private maybeTriggerTypingEasterEgg(layout: LatteLayout, now: number, cps: number): void {
+    // 1) Rare soft kitten "喵~" meow + floating speech pill (~0.9% chance, >= 85s cooldown)
+    if (now - this.lastMeowAt > 85_000 && Math.random() < 0.009) {
+      this.lastMeowAt = now;
+      this.tailFlickUntil = now + 520;
+      this.easterHappyUntil = now + 1050;
+      catAudio.playMeow();
+      const g = this.computeGeom(layout);
+      const variants = ['喵~ ♪', '咪~ ✦', '喵呜~'] as const;
+      const text = variants[Math.floor(Math.random() * variants.length)];
+      this.spawnSpeechPill(text, g.charX + 54, g.oyBody + SRC_HEAD_TOP.y * g.s + 12, '#ff84c8');
+      this.spawnMiniCelebration(g, ['♪', '♥', '✦'], 3);
+      return;
+    }
+
+    // 2) Rare Starlight Music Fever Burst (~1.5% chance on rhythmic typing, >= 42s cooldown)
+    if (cps >= 3.0 && now - this.lastFeverAt > 42_000 && Math.random() < 0.015) {
+      this.lastFeverAt = now;
+      this.tailFlickUntil = now + 600;
+      catAudio.playChime();
+      const g = this.computeGeom(layout);
+      this.spawnStarlightBurst(g);
+      return;
+    }
+
+    // 3) Rare tiny fish / pawprint treat (~1.0% chance, >= 65s cooldown)
+    if (now - this.lastTreatAt > 65_000 && Math.random() < 0.01) {
+      this.triggerTreatEgg(layout, now);
+    }
+  }
+
+  private triggerTreatEgg(layout: LatteLayout, now: number): void {
+    this.lastTreatAt = now;
+    this.tailFlickUntil = now + 450;
+    this.bob = Math.min(1.4, this.bob + 0.7);
+    const g = this.computeGeom(layout);
+    const glyph = Math.random() < 0.6 ? '🐟' : '🐾';
+    this.particles.push({
+      x: g.charX + (Math.random() < 0.5 ? -44 : 44),
+      y: g.oyBody + (SRC_HEAD_TOP.y + 8) * g.s,
+      vx: (Math.random() - 0.5) * 14,
+      vy: -42,
+      age: 0,
+      lifetime: 1.65,
+      size: 25,
+      phase: Math.random() * Math.PI * 2,
+      sway: 10,
+      glyph,
+      color: '#f5b841',
+      rot: (Math.random() - 0.5) * 0.25,
+    });
+    this.spawnMiniCelebration(g, ['✦', '★'], 2);
+  }
+
+  private spawnStarlightBurst(g: Geom): void {
+    const count = 7;
+    for (let i = 0; i < count; i++) {
+      const spread = (i / (count - 1) - 0.5) * 2; // -1..1
+      this.particles.push({
+        x: g.charX + spread * 46,
+        y: g.oyBody + (SRC_HEAD_TOP.y + 10) * g.s - Math.abs(spread) * 6,
+        vx: spread * 24,
+        vy: -(52 + Math.random() * 22),
+        age: 0,
+        lifetime: 1.45 + Math.random() * 0.35,
+        size: 22 + (i % 3) * 3.5,
+        phase: i * 1.1,
+        sway: 8 + Math.random() * 4,
+        glyph: FEVER_GLYPHS[i % FEVER_GLYPHS.length],
+        color: NOTE_PALETTE[i % NOTE_PALETTE.length],
+        rot: spread * 0.22,
+      });
+    }
+  }
+
+  private spawnMiniCelebration(g: Geom, glyphs: readonly string[], count: number): void {
+    for (let i = 0; i < count; i++) {
+      const spread = count === 1 ? 0 : (i / (count - 1) - 0.5) * 2;
+      this.particles.push({
+        x: g.charX + spread * 40,
+        y: g.oyBody + (SRC_HEAD_TOP.y + 8) * g.s,
+        vx: spread * 14,
+        vy: -(46 + Math.random() * 14),
+        age: 0,
+        lifetime: 1.35,
+        size: 22 + (i % 2) * 4,
+        phase: i * 1.3,
+        sway: 7,
+        glyph: glyphs[i % glyphs.length],
+        color: NOTE_PALETTE[i % NOTE_PALETTE.length],
+        rot: spread * 0.16,
+      });
+    }
+  }
+
+  private spawnSpeechPill(text: string, x: number, y: number, accent: string): void {
+    this.speechPills.push({
+      text,
+      x,
+      y,
+      age: 0,
+      lifetime: 1.75,
+      accent,
+    });
+    if (this.speechPills.length > 2) this.speechPills.shift();
   }
 
   private assignPawTarget(
@@ -355,19 +499,19 @@ export class LatteRenderer {
     paw.lastPressAt = now;
     paw.tapUntil = now + holdMs;
     paw.strikePulse = 1.0;
-    paw.chosenSpec = null; // re-evaluate best directional sprite for the new key
+    paw.chosenSpec = null;
   }
 
-  /** Demo helper for static browser preview QA (`?demo=typing|happy|key:...`) */
+  /** Demo helper for static browser preview QA (`?demo=typing|happy|easter|keys:...`) */
   public seedDemoState(
-    mode: 'typing' | 'happy',
+    mode: 'typing' | 'happy' | 'easter',
     layout: LatteLayout,
     targets?: { left?: { x: number; y: number }; right?: { x: number; y: number } },
   ): void {
     const now = performance.now();
     this.lastKeyAt = now;
     const g = this.computeGeom(layout);
-    const count = mode === 'happy' ? 10 : 5;
+    const count = mode === 'happy' ? 10 : 6;
     for (let i = 0; i < count; i++) this.keyTimes.push(now - i * 110);
 
     if (targets?.left) {
@@ -389,10 +533,19 @@ export class LatteRenderer {
       this.rightPaw.chosenSpec = null;
     }
 
+    if (mode === 'easter') {
+      this.spawnSpeechPill('喵~ ♪', g.charX + 58, g.oyBody + SRC_HEAD_TOP.y * g.s + 14, '#ff84c8');
+      this.spawnStarlightBurst(g);
+      for (const p of this.particles) p.age = 0.25;
+      for (const s of this.speechPills) s.age = 0.28;
+      return;
+    }
+
     for (let i = 0; i < 3; i++) {
       this.particles.push({
         x: g.charX + (i - 1) * 44,
         y: g.oyBody + SRC_HEAD_TOP.y * g.s - 8 - i * 16,
+        vx: 0,
         vy: -42,
         age: 0.25 + i * 0.12,
         lifetime: 1.5,
@@ -410,6 +563,7 @@ export class LatteRenderer {
     this.particles.push({
       x: x + (Math.random() - 0.5) * 16,
       y,
+      vx: (Math.random() - 0.5) * 10,
       vy: -36 - Math.random() * 16,
       age: 0,
       lifetime: 0.52,
@@ -433,7 +587,6 @@ export class LatteRenderer {
       this.nextBlinkAt = now + 3200 + Math.random() * 3600;
     }
 
-    // Track mouse position while mouse button is held down
     if (this.mousePressed && !layout.privacyMode) {
       const btnOffsetX = layout.mouseRight && !layout.mouseLeft ? -5 : 5;
       this.leftPaw.targetX = layout.mouseX + btnOffsetX;
@@ -441,7 +594,6 @@ export class LatteRenderer {
       this.leftPaw.tapUntil = Math.max(this.leftPaw.tapUntil, now + 120);
     }
 
-    // Update both paws' spring targeting & return-to-rest easing
     const leftActive = !layout.privacyMode && !layout.asleep &&
       (this.mousePressed || this.leftPaw.held.size > 0 || now < this.leftPaw.tapUntil);
     const rightActive = !layout.privacyMode && !layout.asleep &&
@@ -450,7 +602,6 @@ export class LatteRenderer {
     this.updatePawTracker(this.leftPaw, leftActive, true, dt, layout);
     this.updatePawTracker(this.rightPaw, rightActive, false, dt, layout);
 
-    // Subtle adorable torso lean toward active reach targets (clamped ±7.5px)
     let desiredLean = 0;
     const baseCharX = 212;
     if (leftActive && rightActive) {
@@ -475,7 +626,7 @@ export class LatteRenderer {
     } else if (layout.isCross) {
       speed = 7.5;
       amp = 1;
-    } else if (isHappy || cps >= 4.5) {
+    } else if (isHappy || cps >= 4.5 || now < this.easterHappyUntil) {
       speed = 4.6;
       amp = 1;
     } else if (typing) {
@@ -487,14 +638,14 @@ export class LatteRenderer {
 
     const g = this.computeGeom(layout);
 
-    // Lively musical notes whenever typing with rhythm (>= 2.8 CPS)
-    if (!layout.privacyMode && !layout.asleep && typing && cps >= 2.8 && now >= this.nextNoteAt && this.particles.length < 9) {
+    if (!layout.privacyMode && !layout.asleep && typing && cps >= 2.8 && now >= this.nextNoteAt && this.particles.length < 12) {
       const fast = cps >= 4.5;
       this.nextNoteAt = now + (fast ? 260 : 420) + Math.random() * 140;
       const side = Math.random() < 0.5 ? -1 : 1;
       this.particles.push({
         x: g.charX + side * (26 + Math.random() * 44),
         y: g.oyBody + (SRC_HEAD_TOP.y + 12) * g.s,
+        vx: 0,
         vy: -(44 + Math.random() * 18),
         age: 0,
         lifetime: 1.35 + Math.random() * 0.25,
@@ -507,12 +658,12 @@ export class LatteRenderer {
       });
     }
 
-    // Warm coral hearts when petting Latte's head
-    if (isHappy && now >= this.nextHeartAt && this.particles.length < 9) {
+    if (isHappy && now >= this.nextHeartAt && this.particles.length < 12) {
       this.nextHeartAt = now + 320 + Math.random() * 180;
       this.particles.push({
         x: g.charX + (Math.random() - 0.5) * 90,
         y: g.oyBody + (SRC_HEAD_TOP.y + 10) * g.s,
+        vx: 0,
         vy: -(40 + Math.random() * 16),
         age: 0,
         lifetime: 1.3,
@@ -528,8 +679,16 @@ export class LatteRenderer {
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.age += dt;
+      p.x += p.vx * dt;
       p.y += p.vy * dt;
       if (p.age >= p.lifetime) this.particles.splice(i, 1);
+    }
+
+    for (let i = this.speechPills.length - 1; i >= 0; i--) {
+      const sp = this.speechPills[i];
+      sp.age += dt;
+      sp.y -= 18 * dt;
+      if (sp.age >= sp.lifetime) this.speechPills.splice(i, 1);
     }
   }
 
@@ -552,7 +711,6 @@ export class LatteRenderer {
     const goalX = active ? paw.targetX : rest.x;
     const goalY = active ? paw.targetY : rest.y;
 
-    // Fast snappy reach to keycaps (34 rad/s), smooth relaxed glide back to rest (11 rad/s)
     const rate = active ? 34 : 11;
     const alpha = 1 - Math.exp(-rate * dt);
     paw.curX += (goalX - paw.curX) * alpha;
@@ -599,12 +757,12 @@ export class LatteRenderer {
     if (layout.privacyMode) return 'blink';
     if (layout.asleep || layout.sleepAmount > 0.5) return 'sleep';
     if (layout.isCross || layout.crossAmount > 0.35) return 'angry';
-    if (layout.petEnergy > 0.28) return 'happy';
+    // Closed-eye smile ONLY when being petted or during a brief rare meow Easter egg!
+    if (layout.petEnergy > 0.28 || now < this.easterHappyUntil) return 'happy';
     if (now < this.blinkUntil) return 'blink';
+    // Always keep bright wide-open excited eyes + tiny tongue blep while typing (even very fast!)
     const typing = now - this.lastKeyAt < 650 || this.leftPaw.held.size > 0 || this.rightPaw.held.size > 0;
-    if (typing) {
-      return this.typingCps(now) >= 4.5 ? 'happy' : 'typing';
-    }
+    if (typing) return 'typing';
     return 'idle';
   }
 
@@ -656,7 +814,6 @@ export class LatteRenderer {
     this.drawLayer(ctx, `tail_${frame}` as LayerKey, g, g.oyBody);
   }
 
-  /** Layer 1 (before keyboard): tail, body, accessories. */
   public renderBody(ctx: CanvasRenderingContext2D, now: number, layout: LatteLayout): void {
     this.ensureImages();
     const g = this.computeGeom(layout);
@@ -671,7 +828,6 @@ export class LatteRenderer {
     else if (neck.startsWith('custom:')) this.drawCustomOutfit(ctx, neck, g);
   }
 
-  /** Layer 2 (after keyboard): targeted directional paws + bold, lively floating FX. */
   public renderForeground(ctx: CanvasRenderingContext2D, now: number, layout: LatteLayout): void {
     const g = this.computeGeom(layout);
 
@@ -685,6 +841,7 @@ export class LatteRenderer {
 
     if (layout.asleep) this.drawZzz(ctx, g, now);
     this.drawParticles(ctx);
+    this.drawSpeechPills(ctx);
   }
 
   private pickBestPawSpec(
@@ -724,11 +881,9 @@ export class LatteRenderer {
       return;
     }
 
-    // Shoulder follows body vertical bob/breath so upper foreleg stays 100% glued to chest
     const shWx = g.ox + shoulderSrc.x * g.s;
     const shWy = g.oyBody + shoulderSrc.y * g.s;
 
-    // Subtle tap bounce: brief lift on fresh strike, settling firmly onto keycap (+1.4px press)
     const tapLift = paw.strikePulse > 0.55 ? -(paw.strikePulse - 0.55) * 7.0 : (1 - paw.strikePulse) * 1.4;
     const tipWx = paw.curX;
     const tipWy = paw.curY + tapLift;
@@ -747,10 +902,9 @@ export class LatteRenderer {
       return;
     }
 
-    // Soft contact shadow directly on the pressed keycap
     if (paw.pressBlend > 0.25) {
       ctx.save();
-      ctx.globalAlpha = 0.26 * paw.pressBlend;
+      ctx.globalAlpha = 0.24 * paw.pressBlend;
       ctx.fillStyle = '#0c0c12';
       ctx.beginPath();
       ctx.ellipse(tipWx, tipWy + 2.5, 13, 5.2, 0, 0, Math.PI * 2);
@@ -760,7 +914,6 @@ export class LatteRenderer {
 
     const naturalLen = spec.len * g.s;
     const lenScale = Math.max(0.76, Math.min(1.26, targetLen / naturalLen));
-    // Keep paw width graceful while stretching subtly along the foreleg axis
     const widthScale = 1 + (lenScale - 1) * 0.32;
 
     ctx.save();
@@ -799,6 +952,43 @@ export class LatteRenderer {
       ctx.strokeText(p.glyph, 0, 0);
       ctx.fillStyle = p.color;
       ctx.fillText(p.glyph, 0, 0);
+      ctx.restore();
+    }
+  }
+
+  private drawSpeechPills(ctx: CanvasRenderingContext2D): void {
+    for (const sp of this.speechPills) {
+      const u = Math.min(1, sp.age / sp.lifetime);
+      const pop = u < 0.14 ? 0.5 + (u / 0.14) * 0.62 : u < 0.26 ? 1.12 - ((u - 0.14) / 0.12) * 0.12 : 1.0;
+      const alpha = u > 0.72 ? Math.max(0, (1 - u) / 0.28) : Math.min(1, u / 0.10);
+
+      ctx.save();
+      ctx.globalAlpha = alpha * 0.96;
+      ctx.translate(sp.x, sp.y);
+      ctx.scale(pop, pop);
+      ctx.font = '700 14px -apple-system, "PingFang SC", sans-serif';
+      const tw = ctx.measureText(sp.text).width + 18;
+      const th = 26;
+      const r = 12;
+
+      // Cozy cream speech pill with tiny tail
+      ctx.beginPath();
+      ctx.moveTo(-tw / 2 + r, -th / 2);
+      ctx.arcTo(tw / 2, -th / 2, tw / 2, th / 2, r);
+      ctx.arcTo(tw / 2, th / 2, -tw / 2, th / 2, r);
+      ctx.arcTo(-tw / 2, th / 2, -tw / 2, -th / 2, r);
+      ctx.arcTo(-tw / 2, -th / 2, tw / 2, -th / 2, r);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(255, 251, 246, 0.96)';
+      ctx.fill();
+      ctx.strokeStyle = sp.accent;
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+
+      ctx.fillStyle = '#4a3d38';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(sp.text, 0, 0.5);
       ctx.restore();
     }
   }

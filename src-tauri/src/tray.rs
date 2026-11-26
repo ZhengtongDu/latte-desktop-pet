@@ -89,6 +89,43 @@ fn build_tray_menu(
         None::<&str>,
     )?)?;
 
+    // 外设主题
+    let gear_menu = Submenu::with_id(app, "gear_menu", "外设主题", true)?;
+    for (id, label) in [
+        ("dark-rgb", "暗夜"),
+        ("snow-white", "纯白"),
+        ("cream-retro", "奶霜"),
+        ("sakura-pink", "樱粉"),
+    ] {
+        gear_menu.append(&CheckMenuItem::with_id(
+            app,
+            format!("gear:{id}"),
+            label,
+            true,
+            initial.gear_theme == id,
+            None::<&str>,
+        )?)?;
+    }
+
+    // 背景装饰
+    let scene_menu = Submenu::with_id(app, "scene_menu", "背景装饰", true)?;
+    for (id, label) in [
+        ("none", "无"),
+        ("bookshelf", "书房"),
+        ("kitchen", "厨房"),
+        ("litterbox", "猫砂盆"),
+        ("window", "阳光窗台"),
+    ] {
+        scene_menu.append(&CheckMenuItem::with_id(
+            app,
+            format!("scene:{id}"),
+            label,
+            true,
+            initial.scene_id == id,
+            None::<&str>,
+        )?)?;
+    }
+
     // 大小
     let scale_s = CheckMenuItem::with_id(app, "scale_s", "小", true, initial.scale < 0.62, None::<&str>)?;
     let scale_m = CheckMenuItem::with_id(app, "scale_m", "中（默认）", true, (0.62..=0.76).contains(&initial.scale), None::<&str>)?;
@@ -137,6 +174,8 @@ fn build_tray_menu(
             &toggle_show,
             &sep1,
             &wardrobe_menu,
+            &gear_menu,
+            &scene_menu,
             &scale_menu,
             &fps_menu,
             &privacy_guard,
@@ -154,6 +193,8 @@ fn build_tray_menu(
             &toggle_show,
             &sep1,
             &wardrobe_menu,
+            &gear_menu,
+            &scene_menu,
             &scale_menu,
             &fps_menu,
             &privacy_guard,
@@ -288,6 +329,24 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
                         let updated = {
                             let mut s = state.settings.lock().unwrap();
                             s.outfit_id = crate::config::normalize_outfit_id(outfit_id);
+                            crate::config::save_settings(&s);
+                            s.clone()
+                        };
+                        refresh_tray(app);
+                        let _ = app.emit("kuro-settings", updated);
+                    } else if let Some(gear) = other.strip_prefix("gear:") {
+                        let updated = {
+                            let mut s = state.settings.lock().unwrap();
+                            s.gear_theme = crate::config::normalize_gear_theme(gear);
+                            crate::config::save_settings(&s);
+                            s.clone()
+                        };
+                        refresh_tray(app);
+                        let _ = app.emit("kuro-settings", updated);
+                    } else if let Some(scene) = other.strip_prefix("scene:") {
+                        let updated = {
+                            let mut s = state.settings.lock().unwrap();
+                            s.scene_id = crate::config::normalize_scene_id(scene);
                             crate::config::save_settings(&s);
                             s.clone()
                         };

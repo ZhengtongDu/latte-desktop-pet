@@ -1,6 +1,14 @@
 import './style.css';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import {
+  GEAR_THEME_OPTIONS,
+  normalizeGearTheme,
+  normalizeSceneId,
+  SCENE_OPTIONS,
+  type GearThemeId,
+  type SceneId,
+} from './themes';
 import { NECK_OPTIONS, type CustomAccessoryMeta } from './wardrobe';
 
 interface AppSettings {
@@ -9,6 +17,8 @@ interface AppSettings {
   fpsCap: number;
   outfitId: string;
   harnessOn: boolean;
+  gearTheme: GearThemeId;
+  sceneId: SceneId;
 }
 
 let settings: AppSettings = {
@@ -17,12 +27,16 @@ let settings: AppSettings = {
   fpsCap: 30,
   outfitId: 'donut-yellow',
   harnessOn: false,
+  gearTheme: 'dark-rgb',
+  sceneId: 'none',
 };
 
 let customAccessories: CustomAccessoryMeta[] = [];
 
 const menuEl = document.getElementById('context-menu') as HTMLDivElement;
 const outfitPillsEl = document.getElementById('outfit-pills') as HTMLDivElement | null;
+const gearPillsEl = document.getElementById('gear-pills') as HTMLDivElement | null;
+const scenePillsEl = document.getElementById('scene-pills') as HTMLDivElement | null;
 
 function renderUI(): void {
   if (outfitPillsEl) {
@@ -39,6 +53,34 @@ function renderUI(): void {
       btn.textContent = item.name;
       btn.classList.toggle('active', item.id === (settings.outfitId || 'donut-yellow'));
       outfitPillsEl.appendChild(btn);
+    }
+  }
+
+  if (gearPillsEl) {
+    const activeGear = normalizeGearTheme(settings.gearTheme);
+    gearPillsEl.innerHTML = '';
+    for (const item of GEAR_THEME_OPTIONS) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'kb-pill';
+      btn.dataset.gear = item.id;
+      btn.textContent = item.name;
+      btn.classList.toggle('active', item.id === activeGear);
+      gearPillsEl.appendChild(btn);
+    }
+  }
+
+  if (scenePillsEl) {
+    const activeScene = normalizeSceneId(settings.sceneId);
+    scenePillsEl.innerHTML = '';
+    for (const item of SCENE_OPTIONS) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'kb-pill';
+      btn.dataset.scene = item.id;
+      btn.textContent = item.name;
+      btn.classList.toggle('active', item.id === activeScene);
+      scenePillsEl.appendChild(btn);
     }
   }
 
@@ -67,7 +109,12 @@ async function bootstrap(): Promise<void> {
       invoke<AppSettings>('get_settings').catch(() => settings),
       invoke<CustomAccessoryMeta[]>('list_custom_accessories').catch(() => []),
     ]);
-    settings = loaded;
+    settings = {
+      ...settings,
+      ...loaded,
+      gearTheme: normalizeGearTheme(loaded.gearTheme),
+      sceneId: normalizeSceneId(loaded.sceneId),
+    };
     customAccessories = accs;
   }
   renderUI();
@@ -81,11 +128,21 @@ async function bootstrap(): Promise<void> {
   });
 
   menuEl.addEventListener('click', (e) => {
-    const target = (e.target as HTMLElement).closest<HTMLElement>('[data-action], [data-outfit], [data-fpscap]');
+    const target = (e.target as HTMLElement).closest<HTMLElement>(
+      '[data-action], [data-outfit], [data-gear], [data-scene], [data-fpscap]',
+    );
     if (!target) return;
 
     if (target.dataset.outfit) {
       void patchSettings({ outfitId: target.dataset.outfit });
+      return;
+    }
+    if (target.dataset.gear) {
+      void patchSettings({ gearTheme: normalizeGearTheme(target.dataset.gear) });
+      return;
+    }
+    if (target.dataset.scene) {
+      void patchSettings({ sceneId: normalizeSceneId(target.dataset.scene) });
       return;
     }
     const fps = target.dataset.fpscap;
@@ -112,7 +169,12 @@ async function bootstrap(): Promise<void> {
   if (!inTauri) return;
 
   await listen<AppSettings>('kuro-settings', (ev) => {
-    settings = ev.payload;
+    settings = {
+      ...settings,
+      ...ev.payload,
+      gearTheme: normalizeGearTheme(ev.payload.gearTheme),
+      sceneId: normalizeSceneId(ev.payload.sceneId),
+    };
     renderUI();
   });
   await listen<CustomAccessoryMeta[]>('kuro-accessories', (ev) => {
@@ -122,7 +184,13 @@ async function bootstrap(): Promise<void> {
     }
   });
   await listen('kuro-menu-opened', async () => {
-    settings = await invoke<AppSettings>('get_settings').catch(() => settings);
+    const loaded = await invoke<AppSettings>('get_settings').catch(() => settings);
+    settings = {
+      ...settings,
+      ...loaded,
+      gearTheme: normalizeGearTheme(loaded.gearTheme),
+      sceneId: normalizeSceneId(loaded.sceneId),
+    };
     renderUI();
   });
 }

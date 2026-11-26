@@ -12,6 +12,8 @@ interface AppSettings {
   fpsCap: number;
   outfitId: string;
   harnessOn: boolean;
+  gearTheme?: string;
+  sceneId?: string;
 }
 
 type InputEvent =
@@ -39,11 +41,13 @@ function applySettings(s: AppSettings): void {
     outfitId: s.outfitId ?? 'donut-yellow',
     harnessOn: Boolean(s.harnessOn),
   });
+  engine.setGearTheme(s.gearTheme ?? 'dark-rgb');
+  engine.setScene(s.sceneId ?? 'none');
   catAudio.setEnabled(true);
 }
 
 async function bootstrap(): Promise<void> {
-  // Support standalone Vite preview (`index.html?outfit=bell-collar&harness=1&demo=typing`)
+  // Support standalone Vite preview (`index.html?gear=snow-white&scene=bookshelf&demo=easter`)
   const params = new URLSearchParams(window.location.search);
   const inTauri = '__TAURI_INTERNALS__' in window;
 
@@ -54,6 +58,8 @@ async function bootstrap(): Promise<void> {
       fpsCap: 30,
       outfitId: params.get('outfit') || 'donut-yellow',
       harnessOn: params.get('harness') === '1',
+      gearTheme: params.get('gear') || 'dark-rgb',
+      sceneId: params.get('scene') || 'none',
     });
     const demo = params.get('demo');
     if (demo) engine.setDemoMode(demo);
@@ -77,6 +83,7 @@ async function bootstrap(): Promise<void> {
   let dragging = false;
 
   canvas.addEventListener('pointerdown', (e) => {
+    catAudio.unlock();
     if (e.button === 0) {
       dragging = true;
       canvas.classList.add('pet-dragging');
