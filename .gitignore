@@ -1,0 +1,13 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/schemas/
+release-artifacts/
+art/codex-round1/
+art/style-samples/
+art/latte-pencil/body_typing_old.png
+*.dmg
+*.zip
+*.log
+.DS_Store
+__pycache__/

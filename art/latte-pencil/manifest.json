@@ -1,0 +1,22 @@
+{
+  "canvas": [1024, 1024],
+  "drawOrder": ["tail", "body", "accessory", "paw_left", "paw_right"],
+  "accessoryDrawOrder": ["acc_harness", "acc_donut", "acc_bell_collar"],
+  "mutuallyExclusiveAccessories": [["acc_donut", "acc_bell_collar"]],
+  "pawRestLineY": 880,
+  "anchors": {
+    "neck": [514, 454],
+    "headTop": [512, 172],
+    "leftPawTip": [421, 880],
+    "rightPawTip": [605, 878],
+    "tailRoot": [696, 820]
+  },
+  "pawVariants": {
+    "paw_left_press_far": { "shoulder": [413, 635], "tip": [215, 910] },
+    "paw_left_press_mid": { "shoulder": [413, 635], "tip": [385, 944] },
+    "paw_left_press_in": { "shoulder": [413, 635], "tip": [510, 930] },
+    "paw_right_press_in": { "shoulder": [603, 635], "tip": [510, 929] },
+    "paw_right_press_mid": { "shoulder": [603, 635], "tip": [645, 944] },
+    "paw_right_press_far": { "shoulder": [603, 635], "tip": [810, 935] }
+  }
+}

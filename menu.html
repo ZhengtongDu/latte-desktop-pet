@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN" class="menu-window-mode">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Latte Menu</title>
+  </head>
+  <body class="menu-window-body">
+    <div id="context-menu" class="context-menu floating-side-menu simple-menu">
+      <div class="sm-header">
+        <span class="sm-title" id="menu-header">拿铁</span>
+        <button class="sm-close" id="btn-close-menu" type="button" title="关闭 (Esc)">×</button>
+      </div>
+
+      <div class="sm-body" id="menu-tab-body">
+        <section class="sm-section" id="wardrobe-section">
+          <div class="sm-section-title">
+            <span>配饰</span>
+            <button class="sm-link" data-action="open-accessories-folder" type="button" title="把透明 PNG 放进这个文件夹即可添加自己的配件">自定义…</button>
+          </div>
+          <div class="sm-pills" id="outfit-pills"></div>
+          <button class="sm-toggle" data-action="toggle-harness" type="button">
+            <span>胸背带</span>
+            <span class="sm-switch" id="sw-harness"></span>
+          </button>
+        </section>
+
+        <section class="sm-section">
+          <div class="sm-section-title"><span>省电</span></div>
+          <div class="sm-segmented">
+            <button class="kb-pill" data-fpscap="0" type="button" title="60 帧">流畅</button>
+            <button class="kb-pill" data-fpscap="30" type="button" title="30 帧（推荐）">均衡</button>
+            <button class="kb-pill" data-fpscap="20" type="button" title="20 帧">省电</button>
+          </div>
+        </section>
+
+        <button class="sm-toggle" data-action="toggle-privacy" type="button">
+          <span>输密码时捂眼</span>
+          <span class="sm-switch" id="sw-privacy"></span>
+        </button>
+      </div>
+
+      <div class="sm-footer">
+        <button class="sm-quit" data-action="quit" type="button">退出</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/menuMain.ts"></script>
+  </body>
+</html>

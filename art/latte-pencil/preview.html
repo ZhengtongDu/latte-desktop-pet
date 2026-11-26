@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>拿铁 · 彩铅桌宠素材预览</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      color: #2e2924;
+      background: #eeeae3;
+    }
+    body { margin: 0; }
+    main { max-width: 1060px; margin: auto; padding: 24px; }
+    h1 { margin: 0 0 16px; font-size: 24px; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 20px; align-items: start; }
+    canvas { display: block; width: 100%; height: auto; border-radius: 14px; background: #f8f6f3; }
+    canvas[data-background="dark"] { background: #24262b; }
+    fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+    .controls { background: #fcfbfa; padding: 18px; border-radius: 14px; }
+    .group { display: grid; gap: 9px; margin-bottom: 20px; }
+    .group legend { font-weight: 650; padding: 0; margin-bottom: 10px; }
+    label { display: flex; align-items: center; gap: 8px; }
+    input { accent-color: #8a611f; }
+    select, button { font: inherit; color: inherit; width: 100%; padding: 9px 11px; border: 1px solid #c9bbaa; border-radius: 8px; }
+    select { background: #fff; }
+    button { color: #392910; background: #f2dca9; cursor: pointer; }
+    button[aria-pressed="true"] { background: #dcb970; }
+    :focus-visible { outline: 2px solid #7c5420; outline-offset: 2px; }
+    #status { margin: 10px 0 0; font-size: 13px; }
+    @media (max-width: 720px) {
+      main { padding: 14px; }
+      .layout { grid-template-columns: minmax(0, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>拿铁 · 彩铅桌宠</h1>
+    <div class="layout">
+      <canvas id="preview" width="1024" height="1024" data-background="light" aria-label="拿铁的图层组合预览"></canvas>
+      <div class="controls">
+        <fieldset id="options" disabled>
+          <div class="group">
+            <label for="expression"><strong>表情</strong></label>
+            <select id="expression">
+              <option value="idle">默认</option>
+              <option value="blink">眨眼</option>
+              <option value="typing">打字</option>
+              <option value="happy">蹭脸</option>
+              <option value="angry">生气</option>
+              <option value="sleep">睡着</option>
+            </select>
+          </div>
+          <fieldset class="group">
+            <legend>配饰</legend>
+            <label><input id="donut" type="checkbox"> 黄色甜甜圈</label>
+            <label><input id="bell" type="checkbox"> 红色铃铛项圈</label>
+            <label><input id="harness" type="checkbox"> 灰蓝色胸背带</label>
+          </fieldset>
+          <fieldset class="group">
+            <legend>背景</legend>
+            <label><input type="radio" name="background" value="light" checked> 浅色</label>
+            <label><input type="radio" name="background" value="dark"> 深色</label>
+          </fieldset>
+          <button id="simulate" type="button" aria-pressed="false">模拟打字</button>
+        </fieldset>
+        <p id="status" role="status">正在读取图层</p>
+      </div>
+    </div>
+  </main>
+  <script type="application/json" id="rendering">
+    {"canvas":[1024,1024],"drawOrder":["tail","body","accessory","paw_left","paw_right"],"accessoryDrawOrder":["acc_harness","acc_donut","acc_bell_collar"]}
+  </script>
+  <script type="module">
+    const canvas = document.querySelector("#preview");
+    const options = document.querySelector("#options");
+    const status = document.querySelector("#status");
+    const context = canvas.getContext("2d");
+    const expression = document.querySelector("#expression");
+    const simulate = document.querySelector("#simulate");
+    const donut = document.querySelector("#donut");
+    const bell = document.querySelector("#bell");
+    const harness = document.querySelector("#harness");
+    const manifest = JSON.parse(document.querySelector("#rendering").textContent);
+    const [width, height] = manifest.canvas;
+    const accessoryInputs = { acc_harness: harness, acc_donut: donut, acc_bell_collar: bell };
+    const files = [
+      ...Array.from(expression.options, ({value}) => `body_${value}`),
+      "tail_0", "tail_1", "tail_2", "paw_left_down", "paw_left_up", "paw_right_down", "paw_right_up",
+      ...manifest.accessoryDrawOrder,
+    ];
+    const entries = await Promise.all(files.map(async (file) => {
+      const image = new Image();
+      image.src = `${file}.png`;
+      await image.decode();
+      if (image.naturalWidth !== width || image.naturalHeight !== height) {
+        throw new Error(`${file}.png 的画布尺寸不一致`);
+      }
+      return [file, image];
+    })).catch((error) => {
+      status.textContent = `图层读取失败。请检查素材目录中的 PNG 文件。 ${error.message}`;
+      throw error;
+    });
+    const images = new Map(entries);
+    const tailSequence = [0, 1, 2, 1];
+    let step = 0;
+    let timer = null;
+
+    function draw() {
+      const running = timer !== null;
+      const tail = running ? tailSequence[Math.floor(step / 2) % tailSequence.length] : 1;
+      const left = running && step % 2 === 0 ? "up" : "down";
+      const right = running && step % 2 === 1 ? "up" : "down";
+      const layerNames = {
+        tail: [`tail_${tail}`],
+        body: [`body_${expression.value}`],
+        accessory: manifest.accessoryDrawOrder.filter((name) => accessoryInputs[name].checked),
+        paw_left: [`paw_left_${left}`],
+        paw_right: [`paw_right_${right}`],
+      };
+      context.clearRect(0, 0, width, height);
+      for (const layer of manifest.drawOrder) {
+        for (const name of layerNames[layer]) context.drawImage(images.get(name), 0, 0);
+      }
+      canvas.dataset.tail = tail;
+      canvas.dataset.left = left;
+      canvas.dataset.right = right;
+    }
+
+    options.addEventListener("change", (event) => {
+      if (event.target === donut && donut.checked) bell.checked = false;
+      if (event.target === bell && bell.checked) donut.checked = false;
+      if (event.target.name === "background") canvas.dataset.background = event.target.value;
+      draw();
+    });
+    simulate.addEventListener("click", () => {
+      if (timer === null) {
+        step = 0;
+        timer = setInterval(() => {
+          step = (step + 1) % (tailSequence.length * 2);
+          draw();
+        }, 135);
+      } else {
+        clearInterval(timer);
+        timer = null;
+      }
+      simulate.setAttribute("aria-pressed", String(timer !== null));
+      simulate.textContent = timer === null ? "模拟打字" : "停止打字";
+      draw();
+    });
+    draw();
+    status.hidden = true;
+    options.disabled = false;
+  </script>
+</body>
+</html>

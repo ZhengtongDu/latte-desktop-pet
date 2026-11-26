@@ -1,0 +1,233 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent !important;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+}
+
+#pet-canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+}
+
+#pet-canvas.pet-hover {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 24 24'%3E%3Cpath fill='%2316171a' stroke='%23ffffff' stroke-width='1.65' stroke-linejoin='round' d='M9 11V5.5a1.5 1.5 0 0 1 3 0V10m0-5.5a1.5 1.5 0 0 1 3 0V10m0-4a1.5 1.5 0 0 1 3 0V11m0-2.5a1.5 1.5 0 0 1 3 0V14a7 7 0 0 1-7 7h-1.5a6.5 6.5 0 0 1-5.4-2.9l-2.6-4.1a1.5 1.5 0 0 1 2.4-1.8L7 14V7.5a1.5 1.5 0 0 1 2 0Z'/%3E%3C/svg%3E") 12 12, grab;
+}
+
+#pet-canvas.pet-dragging {
+  cursor: grabbing;
+}
+
+/* ===== Simple single-page menu ===== */
+.floating-side-menu.simple-menu {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(28, 28, 30, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #e8e8ea;
+}
+
+.simple-menu .sm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 8px;
+  flex-shrink: 0;
+}
+
+.simple-menu .sm-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f2f2f4;
+  letter-spacing: 0.5px;
+}
+
+.simple-menu .sm-close {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(235, 235, 245, 0.5);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.simple-menu .sm-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.simple-menu .sm-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.simple-menu .sm-body::-webkit-scrollbar {
+  display: none;
+}
+
+.simple-menu .sm-section {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.simple-menu .sm-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(235, 235, 245, 0.45);
+  letter-spacing: 1px;
+}
+
+.simple-menu .sm-link {
+  border: none;
+  background: transparent;
+  color: rgba(235, 235, 245, 0.45);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.simple-menu .sm-link:hover {
+  color: #f5c84b;
+}
+
+.simple-menu .sm-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.simple-menu .kb-pill {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(235, 235, 245, 0.85);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.simple-menu .kb-pill:hover {
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.simple-menu .kb-pill.active {
+  background: #f5c84b;
+  border-color: #f5c84b;
+  color: #1c1c1e;
+  font-weight: 600;
+}
+
+.simple-menu .sm-segmented {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.simple-menu .sm-segmented .kb-pill {
+  background: transparent;
+  text-align: center;
+  padding: 4px 0;
+}
+
+.simple-menu .sm-segmented .kb-pill.active {
+  background: #f5c84b;
+}
+
+.simple-menu .sm-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  color: rgba(235, 235, 245, 0.85);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.simple-menu .sm-switch {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.18);
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+
+.simple-menu .sm-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease;
+}
+
+.simple-menu .sm-switch.on {
+  background: #f5c84b;
+}
+
+.simple-menu .sm-switch.on::after {
+  transform: translateX(14px);
+}
+
+.simple-menu .sm-footer {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+.simple-menu .sm-quit {
+  width: 100%;
+  padding: 5px 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: rgba(255, 120, 120, 0.9);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.simple-menu .sm-quit:hover {
+  background: rgba(255, 92, 92, 0.12);
+}
