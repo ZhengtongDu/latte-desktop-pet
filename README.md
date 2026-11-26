@@ -8,23 +8,19 @@
 
 > **如果你换了一台新 Mac，直接把下面这句话发给你的 AI Agent（Antigravity / Claude Code / Codex 等）：**
 >
-> `帮我从私有仓库 https://github.com/ZhengtongDu/latte-desktop-pet 安装拿铁桌宠到 /Applications/KuroCat.app，按仓库 README.md 的 Agent 安装流程执行并帮我打开 macOS 隐私权限设置页。`
+> `帮我从 https://github.com/ZhengtongDu/latte-desktop-pet 安装拿铁桌宠到 /Applications/KuroCat.app，按仓库 README.md 的 Agent 安装流程执行并帮我打开 macOS 隐私权限设置页。`
 
 ### Agent 标准化执行步骤（Strict Runbook）
 
 请按以下顺序在 macOS 终端执行：
 
-#### 第 1 步：确认 GitHub 访问权限并拉取仓库
+#### 第 1 步：拉取仓库（公开仓库，无需登录 GitHub）
 
 ```bash
-# 确认已登录 GitHub CLI（私有仓库需要 repo 权限；若未登录先引导用户执行 gh auth login）
-gh auth status
-
-# 克隆到本地目录（若已存在则 pull 更新）
 if [ -d "$HOME/latte-desktop-pet/.git" ]; then
   git -C "$HOME/latte-desktop-pet" pull --ff-only
 else
-  gh repo clone ZhengtongDu/latte-desktop-pet "$HOME/latte-desktop-pet"
+  git clone https://github.com/ZhengtongDu/latte-desktop-pet.git "$HOME/latte-desktop-pet"
 fi
 ```
 
@@ -37,7 +33,7 @@ chmod +x install.sh
 ```
 
 `install.sh` 会自动完成以下全部工作：
-1. **Apple Silicon (`arm64`) 极速路径（~3 秒）**：自动通过 `gh release download` 下载最新 Release 中的预编译 `KuroCat-macOS-arm64.zip`，用 `ditto` 解压安装到 `/Applications/KuroCat.app`。
+1. **Apple Silicon (`arm64`) 极速路径（~3 秒，无需安装 Node/Rust/gh）**：自动用 `curl` 直接从 GitHub Latest Release 下载预编译的 `KuroCat-macOS-arm64.zip`，用 `ditto` 解压安装到 `/Applications/KuroCat.app`。
 2. **Intel Mac (`x86_64`) 或强制源码构建路径**：若不是 `arm64`、未下载到预编译包，或传入 `./install.sh --from-source`，则自动执行 `npm ci && npx tauri build --bundles app` 本地编译并安装到 `/Applications/KuroCat.app`。
    - 如果本地源码构建缺少环境，请先安装：
      - Xcode Command Line Tools: `xcode-select --install`

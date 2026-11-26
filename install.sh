@@ -68,20 +68,32 @@ install_app_bundle() {
 INSTALLED=0
 
 # Fast path: prebuilt Apple Silicon bundle from GitHub Release
-if [[ "$FROM_SOURCE" -eq 0 && "$ARCH" == "arm64" ]] && command -v gh >/dev/null 2>&1; then
-  if gh auth status >/dev/null 2>&1; then
-    TMP_DIR="$(mktemp -d)"
-    trap 'rm -rf "$TMP_DIR"' EXIT
-    echo "==> Downloading prebuilt macOS arm64 bundle from GitHub Release (${REPO})..."
-    if gh release download --repo "$REPO" --pattern "KuroCat-macOS-arm64.zip" --dir "$TMP_DIR" 2>/dev/null; then
-      ditto -x -k "${TMP_DIR}/KuroCat-macOS-arm64.zip" "$TMP_DIR"
-      if [[ -d "${TMP_DIR}/${APP_NAME}" ]]; then
-        install_app_bundle "${TMP_DIR}/${APP_NAME}"
-        INSTALLED=1
-      fi
-    else
-      echo "    (No prebuilt arm64 release asset downloaded; falling back to local source build)"
+if [[ "$FROM_SOURCE" -eq 0 && "$ARCH" == "arm64" ]]; then
+  TMP_DIR="$(mktemp -d)"
+  trap 'rm -rf "$TMP_DIR"' EXIT
+  ZIP_PATH="${TMP_DIR}/KuroCat-macOS-arm64.zip"
+  echo "==> Downloading prebuilt macOS arm64 bundle from GitHub Release (${REPO})..."
+
+  DOWNLOADED=0
+  if command -v curl >/dev/null 2>&1; then
+    if curl -fsSL "https://github.com/${REPO}/releases/latest/download/KuroCat-macOS-arm64.zip" -o "$ZIP_PATH" 2>/dev/null; then
+      DOWNLOADED=1
     fi
+  fi
+  if [[ "$DOWNLOADED" -eq 0 ]] && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    if gh release download --repo "$REPO" --pattern "KuroCat-macOS-arm64.zip" --dir "$TMP_DIR" 2>/dev/null; then
+      DOWNLOADED=1
+    fi
+  fi
+
+  if [[ "$DOWNLOADED" -eq 1 && -f "$ZIP_PATH" ]]; then
+    ditto -x -k "$ZIP_PATH" "$TMP_DIR"
+    if [[ -d "${TMP_DIR}/${APP_NAME}" ]]; then
+      install_app_bundle "${TMP_DIR}/${APP_NAME}"
+      INSTALLED=1
+    fi
+  else
+    echo "    (No prebuilt arm64 release asset downloaded; falling back to local source build)"
   fi
 fi
 
